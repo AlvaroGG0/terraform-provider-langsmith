@@ -63,7 +63,6 @@ func (r *WorkspaceRoleResource) Schema(ctx context.Context, req resource.SchemaR
 			},
 			"description": schema.StringAttribute{
 				Required:            true,
-				Validators:          []frameworkvalidator.String{nonEmptyStringValidator{}},
 				MarkdownDescription: "Role description.",
 			},
 			"organization_id": schema.StringAttribute{
@@ -242,10 +241,6 @@ func validateRoleResourceRequiredFields(data roleResourceModel, diagnostics inte
 	ok := true
 	if strings.TrimSpace(data.DisplayName.ValueString()) == "" {
 		diagnostics.AddAttributeError(path.Root("display_name"), "Invalid Role Display Name", "display_name must not be empty.")
-		ok = false
-	}
-	if strings.TrimSpace(data.Description.ValueString()) == "" {
-		diagnostics.AddAttributeError(path.Root("description"), "Invalid Role Description", "description must not be empty.")
 		ok = false
 	}
 	if len(data.Permissions) == 0 {

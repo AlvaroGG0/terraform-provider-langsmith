@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/langchain-ai/langsmith-go"
 	"github.com/langchain-ai/langsmith-go/option"
@@ -33,6 +34,11 @@ func TestWorkspaceRoleResourceSchemaDoesNotExposeAccessScope(t *testing.T) {
 	var resp resource.SchemaResponse
 	resourceUnderTest.Schema(context.Background(), resource.SchemaRequest{}, &resp)
 
+	description := resp.Schema.Attributes["description"].(schema.StringAttribute)
+	if !description.IsRequired() || len(description.Validators) != 0 {
+		t.Fatal("description must remain required without rejecting empty strings")
+	}
+
 	if _, ok := resp.Schema.Attributes["access_scope"]; ok {
 		t.Fatalf("access_scope should be implied by langsmith_workspace_role, not exposed in schema")
 	}
@@ -41,14 +47,14 @@ func TestWorkspaceRoleResourceSchemaDoesNotExposeAccessScope(t *testing.T) {
 func TestRolePayloadFromModel(t *testing.T) {
 	payload := rolePayloadFromModel(roleResourceModel{
 		DisplayName: types.StringValue("Dev Contributor"),
-		Description: types.StringValue("Can use dev workspaces"),
+		Description: types.StringValue(""),
 		Permissions: []string{"projects:read", "projects:create"},
 	})
 
 	if payload.DisplayName != "Dev Contributor" {
 		t.Fatalf("DisplayName = %q", payload.DisplayName)
 	}
-	if payload.Description != "Can use dev workspaces" {
+	if payload.Description != "" {
 		t.Fatalf("Description = %q", payload.Description)
 	}
 	if !reflect.DeepEqual(payload.Permissions, []string{"projects:read", "projects:create"}) {
@@ -112,8 +118,17 @@ func TestValidateRoleResourceRequiredFields(t *testing.T) {
 	if ok {
 		t.Fatalf("validateRoleResourceRequiredFields returned true for invalid role")
 	}
-	if diagnostics.count != 3 {
-		t.Fatalf("diagnostics count = %d, want 3", diagnostics.count)
+	if diagnostics.count != 2 {
+		t.Fatalf("diagnostics count = %d, want 2", diagnostics.count)
+	}
+
+	diagnostics = &attributeErrorRecorder{}
+	if !validateRoleResourceRequiredFields(roleResourceModel{
+		DisplayName: types.StringValue("Custom Role"),
+		Description: types.StringValue(""),
+		Permissions: []string{"projects:read"},
+	}, diagnostics) || diagnostics.count != 0 {
+		t.Fatal("empty description must be accepted with a valid display name and permissions")
 	}
 }
 
@@ -127,7 +142,7 @@ func TestWorkspaceRoleResourceCreatePostsPayloadAndReadsRole(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode create payload: %v", err)
 			}
-			if payload.DisplayName != "Dev Contributor" || payload.Description != "Can use dev workspaces" {
+			if payload.DisplayName != "Dev Contributor" || payload.Description != "" {
 				t.Fatalf("payload = %#v", payload)
 			}
 			if !reflect.DeepEqual(payload.Permissions, []string{"projects:read"}) {
@@ -139,7 +154,7 @@ func TestWorkspaceRoleResourceCreatePostsPayloadAndReadsRole(t *testing.T) {
 				ID:             "role-id",
 				Name:           "CUSTOM",
 				DisplayName:    "Dev Contributor",
-				Description:    "Can use dev workspaces",
+				Description:    "",
 				OrganizationID: "org-id",
 				Permissions:    []string{"projects:read"},
 				AccessScope:    accessScopeWorkspace,
@@ -151,7 +166,7 @@ func TestWorkspaceRoleResourceCreatePostsPayloadAndReadsRole(t *testing.T) {
 
 	role, err := resource.createRole(context.Background(), roleResourceModel{
 		DisplayName: types.StringValue("Dev Contributor"),
-		Description: types.StringValue("Can use dev workspaces"),
+		Description: types.StringValue(""),
 		Permissions: []string{"projects:read"},
 	})
 	if err != nil {
@@ -178,6 +193,9 @@ func TestWorkspaceRoleResourceUpdatePatchesPayloadAndReadsRole(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode update payload: %v", err)
 			}
+			if payload.Description != "" || !reflect.DeepEqual(payload.Permissions, []string{"projects:read", "projects:create"}) {
+				t.Fatalf("payload = %#v", payload)
+			}
 			if payload.DisplayName != "Dev Admin" {
 				t.Fatalf("payload.DisplayName = %q, want Dev Admin", payload.DisplayName)
 			}
@@ -187,7 +205,7 @@ func TestWorkspaceRoleResourceUpdatePatchesPayloadAndReadsRole(t *testing.T) {
 				ID:          "role-id",
 				Name:        "CUSTOM",
 				DisplayName: "Dev Admin",
-				Description: "Can administer dev workspaces",
+				Description: "",
 				Permissions: []string{"projects:read", "projects:create"},
 				AccessScope: accessScopeWorkspace,
 			}})
@@ -198,7 +216,7 @@ func TestWorkspaceRoleResourceUpdatePatchesPayloadAndReadsRole(t *testing.T) {
 
 	role, err := resource.updateRole(context.Background(), "role-id", roleResourceModel{
 		DisplayName: types.StringValue("Dev Admin"),
-		Description: types.StringValue("Can administer dev workspaces"),
+		Description: types.StringValue(""),
 		Permissions: []string{"projects:read", "projects:create"},
 	})
 	if err != nil {

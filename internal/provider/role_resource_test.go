@@ -34,7 +34,10 @@ func TestWorkspaceRoleResourceSchemaDoesNotExposeAccessScope(t *testing.T) {
 	var resp resource.SchemaResponse
 	resourceUnderTest.Schema(context.Background(), resource.SchemaRequest{}, &resp)
 
-	description := resp.Schema.Attributes["description"].(schema.StringAttribute)
+	description, ok := resp.Schema.Attributes["description"].(schema.StringAttribute)
+	if !ok {
+		t.Fatal("description must be a string attribute")
+	}
 	if !description.IsRequired() || len(description.Validators) != 0 {
 		t.Fatal("description must remain required without rejecting empty strings")
 	}

@@ -48,20 +48,24 @@ func TestWorkspaceRoleResourceSchemaDoesNotExposeAccessScope(t *testing.T) {
 }
 
 func TestRolePayloadFromModel(t *testing.T) {
-	payload := rolePayloadFromModel(roleResourceModel{
-		DisplayName: types.StringValue("Dev Contributor"),
-		Description: types.StringValue(""),
-		Permissions: []string{"projects:read", "projects:create"},
-	})
+	for _, description := range []string{"", "Can use dev workspaces"} {
+		t.Run(description, func(t *testing.T) {
+			payload := rolePayloadFromModel(roleResourceModel{
+				DisplayName: types.StringValue("Dev Contributor"),
+				Description: types.StringValue(description),
+				Permissions: []string{"projects:read", "projects:create"},
+			})
 
-	if payload.DisplayName != "Dev Contributor" {
-		t.Fatalf("DisplayName = %q", payload.DisplayName)
-	}
-	if payload.Description != "" {
-		t.Fatalf("Description = %q", payload.Description)
-	}
-	if !reflect.DeepEqual(payload.Permissions, []string{"projects:read", "projects:create"}) {
-		t.Fatalf("Permissions = %#v", payload.Permissions)
+			if payload.DisplayName != "Dev Contributor" {
+				t.Fatalf("DisplayName = %q", payload.DisplayName)
+			}
+			if payload.Description != description {
+				t.Fatalf("Description = %q", payload.Description)
+			}
+			if !reflect.DeepEqual(payload.Permissions, []string{"projects:read", "projects:create"}) {
+				t.Fatalf("Permissions = %#v", payload.Permissions)
+			}
+		})
 	}
 }
 
@@ -136,103 +140,117 @@ func TestValidateRoleResourceRequiredFields(t *testing.T) {
 }
 
 func TestWorkspaceRoleResourceCreatePostsPayloadAndReadsRole(t *testing.T) {
-	requests := make([]string, 0, 2)
-	resource := newRoleResourceWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/orgs/current/roles":
-			var payload rolePayload
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode create payload: %v", err)
-			}
-			if payload.DisplayName != "Dev Contributor" || payload.Description != "" {
-				t.Fatalf("payload = %#v", payload)
-			}
-			if !reflect.DeepEqual(payload.Permissions, []string{"projects:read"}) {
-				t.Fatalf("payload.Permissions = %#v", payload.Permissions)
-			}
-			writeJSON(t, w, roleAPI{ID: "role-id"})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/orgs/current/roles":
-			writeJSON(t, w, []roleAPI{{
-				ID:             "role-id",
-				Name:           "CUSTOM",
-				DisplayName:    "Dev Contributor",
-				Description:    "",
-				OrganizationID: "org-id",
-				Permissions:    []string{"projects:read"},
-				AccessScope:    accessScopeWorkspace,
-			}})
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-	}))
+	for _, description := range []string{"", "Can use dev workspaces"} {
+		t.Run(description, func(t *testing.T) {
+			requests := make([]string, 0, 2)
+			resource := newRoleResourceWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/orgs/current/roles":
+					var payload rolePayload
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatalf("decode create payload: %v", err)
+					}
+					if payload.DisplayName != "Dev Contributor" || payload.Description != description {
+						t.Fatalf("payload = %#v", payload)
+					}
+					if !reflect.DeepEqual(payload.Permissions, []string{"projects:read"}) {
+						t.Fatalf("payload.Permissions = %#v", payload.Permissions)
+					}
+					writeJSON(t, w, roleAPI{ID: "role-id"})
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/orgs/current/roles":
+					writeJSON(t, w, []roleAPI{{
+						ID:             "role-id",
+						Name:           "CUSTOM",
+						DisplayName:    "Dev Contributor",
+						Description:    description,
+						OrganizationID: "org-id",
+						Permissions:    []string{"projects:read"},
+						AccessScope:    accessScopeWorkspace,
+					}})
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+			}))
 
-	role, err := resource.createRole(context.Background(), roleResourceModel{
-		DisplayName: types.StringValue("Dev Contributor"),
-		Description: types.StringValue(""),
-		Permissions: []string{"projects:read"},
-	})
-	if err != nil {
-		t.Fatalf("createRole returned error: %v", err)
-	}
-	if role.ID != "role-id" || role.AccessScope != accessScopeWorkspace {
-		t.Fatalf("role = %#v", role)
-	}
-	if !reflect.DeepEqual(requests, []string{
-		"POST /api/v1/orgs/current/roles",
-		"GET /api/v1/orgs/current/roles",
-	}) {
-		t.Fatalf("requests = %#v", requests)
+			role, err := resource.createRole(context.Background(), roleResourceModel{
+				DisplayName: types.StringValue("Dev Contributor"),
+				Description: types.StringValue(description),
+				Permissions: []string{"projects:read"},
+			})
+			if err != nil {
+				t.Fatalf("createRole returned error: %v", err)
+			}
+			if role.ID != "role-id" || role.AccessScope != accessScopeWorkspace {
+				t.Fatalf("role = %#v", role)
+			}
+			if !reflect.DeepEqual(requests, []string{
+				"POST /api/v1/orgs/current/roles",
+				"GET /api/v1/orgs/current/roles",
+			}) {
+				t.Fatalf("requests = %#v", requests)
+			}
+			if role.Description != description {
+				t.Fatalf("description = %q, want %q", role.Description, description)
+			}
+		})
 	}
 }
 
 func TestWorkspaceRoleResourceUpdatePatchesPayloadAndReadsRole(t *testing.T) {
-	requests := make([]string, 0, 2)
-	resource := newRoleResourceWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		switch {
-		case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/orgs/current/roles/role-id":
-			var payload rolePayload
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode update payload: %v", err)
-			}
-			if payload.Description != "" || !reflect.DeepEqual(payload.Permissions, []string{"projects:read", "projects:create"}) {
-				t.Fatalf("payload = %#v", payload)
-			}
-			if payload.DisplayName != "Dev Admin" {
-				t.Fatalf("payload.DisplayName = %q, want Dev Admin", payload.DisplayName)
-			}
-			writeJSON(t, w, roleAPI{ID: "role-id"})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/orgs/current/roles":
-			writeJSON(t, w, []roleAPI{{
-				ID:          "role-id",
-				Name:        "CUSTOM",
-				DisplayName: "Dev Admin",
-				Description: "",
-				Permissions: []string{"projects:read", "projects:create"},
-				AccessScope: accessScopeWorkspace,
-			}})
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-	}))
+	for _, description := range []string{"", "Can use dev workspaces"} {
+		t.Run(description, func(t *testing.T) {
+			requests := make([]string, 0, 2)
+			resource := newRoleResourceWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				switch {
+				case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/orgs/current/roles/role-id":
+					var payload rolePayload
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatalf("decode update payload: %v", err)
+					}
+					if payload.Description != description || !reflect.DeepEqual(payload.Permissions, []string{"projects:read", "projects:create"}) {
+						t.Fatalf("payload = %#v", payload)
+					}
+					if payload.DisplayName != "Dev Admin" {
+						t.Fatalf("payload.DisplayName = %q, want Dev Admin", payload.DisplayName)
+					}
+					writeJSON(t, w, roleAPI{ID: "role-id"})
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/orgs/current/roles":
+					writeJSON(t, w, []roleAPI{{
+						ID:          "role-id",
+						Name:        "CUSTOM",
+						DisplayName: "Dev Admin",
+						Description: description,
+						Permissions: []string{"projects:read", "projects:create"},
+						AccessScope: accessScopeWorkspace,
+					}})
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+			}))
 
-	role, err := resource.updateRole(context.Background(), "role-id", roleResourceModel{
-		DisplayName: types.StringValue("Dev Admin"),
-		Description: types.StringValue(""),
-		Permissions: []string{"projects:read", "projects:create"},
-	})
-	if err != nil {
-		t.Fatalf("updateRole returned error: %v", err)
-	}
-	if role.DisplayName != "Dev Admin" {
-		t.Fatalf("role.DisplayName = %q, want Dev Admin", role.DisplayName)
-	}
-	if !reflect.DeepEqual(requests, []string{
-		"PATCH /api/v1/orgs/current/roles/role-id",
-		"GET /api/v1/orgs/current/roles",
-	}) {
-		t.Fatalf("requests = %#v", requests)
+			role, err := resource.updateRole(context.Background(), "role-id", roleResourceModel{
+				DisplayName: types.StringValue("Dev Admin"),
+				Description: types.StringValue(description),
+				Permissions: []string{"projects:read", "projects:create"},
+			})
+			if err != nil {
+				t.Fatalf("updateRole returned error: %v", err)
+			}
+			if role.DisplayName != "Dev Admin" {
+				t.Fatalf("role.DisplayName = %q, want Dev Admin", role.DisplayName)
+			}
+			if !reflect.DeepEqual(requests, []string{
+				"PATCH /api/v1/orgs/current/roles/role-id",
+				"GET /api/v1/orgs/current/roles",
+			}) {
+				t.Fatalf("requests = %#v", requests)
+			}
+			if role.Description != description {
+				t.Fatalf("description = %q, want %q", role.Description, description)
+			}
+		})
 	}
 }
 

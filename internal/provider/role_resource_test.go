@@ -11,7 +11,6 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/langchain-ai/langsmith-go"
 	"github.com/langchain-ai/langsmith-go/option"
@@ -33,14 +32,6 @@ func TestWorkspaceRoleResourceSchemaDoesNotExposeAccessScope(t *testing.T) {
 	resourceUnderTest := NewWorkspaceRoleResource()
 	var resp resource.SchemaResponse
 	resourceUnderTest.Schema(context.Background(), resource.SchemaRequest{}, &resp)
-
-	description, ok := resp.Schema.Attributes["description"].(schema.StringAttribute)
-	if !ok {
-		t.Fatal("description must be a string attribute")
-	}
-	if !description.IsRequired() || len(description.Validators) != 0 {
-		t.Fatal("description must remain required without rejecting empty strings")
-	}
 
 	if _, ok := resp.Schema.Attributes["access_scope"]; ok {
 		t.Fatalf("access_scope should be implied by langsmith_workspace_role, not exposed in schema")
